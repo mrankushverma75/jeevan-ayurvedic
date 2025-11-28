@@ -137,7 +137,7 @@ export async function PATCH(
         data: {
           orderId: params.id,
           amount: additionalAmount,
-          paymentType: existingOrder.receivedAmount > 0 ? 'PARTIAL' : 'INITIAL',
+          paymentType: Number(existingOrder.receivedAmount) > 0 ? 'PARTIAL' : 'INITIAL',
           paymentMethod: data.paymentMethod || existingOrder.paymentMethod || 'MONEY_ORDER',
           referenceNumber: data.moneyOrderNumber || existingOrder.moneyOrderNumber,
           receivedBy: session.user.id,

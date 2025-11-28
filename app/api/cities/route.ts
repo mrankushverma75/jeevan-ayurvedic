@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
         where: {
           OR: [
             { id: pincode.cityId },
-            { city: { contains: pincode.city.city, mode: 'insensitive' } },
+            { city: { contains: pincode.city.city } },
           ],
         },
         include: {
