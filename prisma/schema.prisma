@@ -1,0 +1,396 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Seed script configuration
+// Run with: npm run db:seed
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum LeadSource {
+  WHATSAPP
+  SOCIAL_MEDIA
+  WEBSITE
+  REFERRAL
+  PHONE_CALL
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING
+  PAYMENT_RECEIVED
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+  PAID
+  RETURNED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  FULL
+  CUSTOM
+  COMPLETED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ASSIGN
+  APPROVE
+  REJECT
+  CANCEL
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  phone         String?
+  bio           String?   @db.Text
+  profileImage  String?   // URL to profile image
+  role          UserRole  @default(EMPLOYEE)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  assignedLeads Lead[]
+  assignedOrders Order[]
+  createdAuditLogs AuditLog[]
+  roleAssignments UserRoleAssignment[]
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  users       UserRoleAssignment[]
+
+  @@index([name])
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  module      String   // e.g., "leads", "bookings", "users"
+  action      String   // e.g., "create", "read", "update", "delete"
+  name        String   // e.g., "Create Leads"
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+}
+
+model UserRoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+}
+
+model City {
+  id        String    @id @default(cuid())
+  city      String
+  alias     String?
+  state     String
+  latitude  Decimal?  @db.Decimal(10, 8)
+  longitude Decimal?  @db.Decimal(11, 8)
+  country   String    @default("India")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  pincodes  Pincode[]
+  leads     Lead[]
+  orders    Order[]
+
+  @@index([city])
+  @@index([state])
+  @@index([country])
+}
+
+model Pincode {
+  id        String   @id @default(cuid())
+  area      String
+  cityId    String
+  pincode   String
+  status    String   @default("active") // active, inactive
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  city City @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  leads Lead[]
+  orders Order[]
+
+  @@index([pincode])
+  @@index([cityId])
+  @@index([status])
+}
+
+model Lead {
+  id                String       @id @default(cuid())
+  // Patient Information
+  name              String
+  fatherName        String?
+  gender            String?      // MALE, FEMALE, OTHER
+  age               Int?
+  phone             String
+  email             String?      // Optional
+  alternatePhone    String?
+  
+  // Medical Information
+  disease           String?
+  duration          String?      // e.g., "1 month", "6 months"
+  patientHistory    String?      @db.Text
+  vppAmount         Decimal?     @db.Decimal(10, 2) // Value Payable Post Amount
+  
+  // Address Information
+  addressLine1      String?
+  addressLine2      String?
+  addressLine3      String?
+  addressLine4      String?
+  addressLine5      String?
+  addressLine6      String?
+  pincodeId         String?
+  cityId            String?
+  state             String?
+  country           String?      @default("India")
+  
+  // Communication Preferences
+  preferredLanguage String?
+  preferredCommunication String? // PHONE, WHATSAPP, EMAIL
+  
+  // Lead Management
+  source            LeadSource?  @default(OTHER)
+  status            LeadStatus    @default(NEW)
+  priority          LeadPriority  @default(MEDIUM)
+  notes             String?      @db.Text
+  assignedTo        String
+  confirmedBy       String?      // User who confirmed the lead
+  confirmedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  assignedUser      User          @relation(fields: [assignedTo], references: [id])
+  pincode           Pincode?      @relation(fields: [pincodeId], references: [id])
+  city              City?         @relation(fields: [cityId], references: [id])
+  orders            Order[]
+  activities        LeadActivity[]
+
+  @@index([assignedTo])
+  @@index([status])
+  @@index([phone])
+  @@index([pincodeId])
+  @@index([cityId])
+  @@index([createdAt])
+  @@index([source])
+}
+
+model LeadActivity {
+  id          String   @id @default(cuid())
+  leadId      String
+  type        String   // e.g., "call", "email", "meeting", "note"
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+model Order {
+  id                String        @id @default(cuid())
+  leadId            String
+  orderNumber       String        @unique // Auto-generated order number
+  
+  // Patient Information (copied from lead)
+  patientName       String
+  patientId         String?       // e.g., G162542
+  
+  // Address Information
+  addressLine1      String?
+  addressLine2      String?
+  addressLine3      String?
+  addressLine4      String?
+  addressLine5      String?
+  addressLine6      String?
+  pincodeId         String?
+  cityId            String?
+  state             String?
+  country           String?      @default("India")
+  station           String?       // Delivery station
+  
+  // Payment Information
+  totalAmount       Decimal       @default(0) @db.Decimal(10, 2)
+  vppAmount         Decimal       @default(0) @db.Decimal(10, 2) // Value Payable Post
+  eppAmount         Decimal?      @db.Decimal(10, 2)
+  receivedAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentMethod     String?       // MONEY_ORDER, ONLINE, CASH, etc.
+  moneyOrderNumber  String?
+  
+  // Dispatch Information
+  status            OrderStatus   @default(PENDING)
+  dispatchDate      DateTime?
+  trackingId        String?       // EPP Number / Courier Tracking ID
+  courierService    String?       // BLUEDART, INDIA_POST, ECOM, etc.
+  weight            Decimal?      @db.Decimal(10, 2) // in grams
+  
+  // Delivery Information
+  deliveredDate     DateTime?
+  returnDate        DateTime?
+  returnReason      String?       @db.Text
+  
+  // Management
+  assignedTo        String
+  bookedBy          String?       // User who booked the order
+  dispatchedBy      String?      // User who dispatched
+  notes             String?       @db.Text
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  lead              Lead          @relation(fields: [leadId], references: [id])
+  assignedUser      User          @relation(fields: [assignedTo], references: [id])
+  pincode           Pincode?      @relation(fields: [pincodeId], references: [id])
+  city              City?         @relation(fields: [cityId], references: [id])
+  payments          Payment[]
+
+  @@index([assignedTo])
+  @@index([leadId])
+  @@index([status])
+  @@index([orderNumber])
+  @@index([trackingId])
+  @@index([dispatchDate])
+  @@index([paymentStatus])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  orderId    String
+  amount     Decimal  @db.Decimal(10, 2)
+  paymentType String  // INITIAL, PARTIAL, FINAL
+  paymentMethod String // MONEY_ORDER, ONLINE, CASH, etc.
+  referenceNumber String?
+  notes      String?  @db.Text
+  receivedAt DateTime @default(now())
+  receivedBy String?  // User who recorded the payment
+  createdAt  DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([receivedAt])
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  userId      String
+  action      AuditAction
+  entityType  String      // e.g., "Lead", "Booking", "User"
+  entityId    String      // Polymorphic reference - no foreign key constraint
+  changes     String?     @db.Text // JSON string of changes
+  description String?     @db.Text
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+enum NotificationType {
+  LEAD_ASSIGNED
+  LEAD_STATUS_CHANGED
+  ORDER_CREATED
+  ORDER_STATUS_CHANGED
+  ORDER_DISPATCHED
+  PAYMENT_RECEIVED
+  SYSTEM_ALERT
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           // User who should receive this notification
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  read      Boolean          @default(false)
+  readAt    DateTime?
+  entityType String?         // e.g., "Lead", "Order"
+  entityId   String?         // ID of the related entity
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
