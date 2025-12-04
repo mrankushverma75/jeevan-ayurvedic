@@ -126,9 +126,8 @@ export async function GET(req: NextRequest) {
           pincode: {
             select: {
               id: true,
-              zipCode: true,
               area: true,
-            } as any,
+            },
           },
           activities: {
             orderBy: { createdAt: 'desc' },
@@ -238,11 +237,10 @@ export async function POST(req: NextRequest) {
         pincode: {
           select: {
             id: true,
-            zipCode: true,
             area: true,
           },
         },
-      },
+      } as any,
     })
 
     await createAuditLog(
