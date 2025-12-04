@@ -92,7 +92,7 @@ async function main() {
         data: {
           leadId: leads[0].id,
           orderNumber,
-          patientName: leads[0].name,
+          patientName: leads[0].name || 'Unknown Patient',
           totalAmount: 5000,
           vppAmount: 5000,
           receivedAmount: 2500,
