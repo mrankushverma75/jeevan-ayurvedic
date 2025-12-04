@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
               id: true,
               zipCode: true,
               area: true,
-            },
+            } as any,
           },
           activities: {
             orderBy: { createdAt: 'desc' },

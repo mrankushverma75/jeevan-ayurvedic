@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
               id: true,
               zipCode: true,
               area: true,
-            },
+            } as any,
           },
           payments: {
             orderBy: { receivedAt: 'desc' },

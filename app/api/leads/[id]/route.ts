@@ -69,7 +69,7 @@ export async function GET(
             id: true,
             zipCode: true,
             area: true,
-          },
+          } as any,
         },
         activities: {
           orderBy: { createdAt: 'desc' },
@@ -251,7 +251,7 @@ export async function PATCH(
             id: true,
             zipCode: true,
             area: true,
-          },
+          } as any,
         },
       },
     })

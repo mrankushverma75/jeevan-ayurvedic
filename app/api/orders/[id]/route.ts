@@ -65,7 +65,7 @@ export async function GET(
             id: true,
             zipCode: true,
             area: true,
-          },
+          } as any,
         },
         payments: {
           orderBy: { receivedAt: 'desc' },

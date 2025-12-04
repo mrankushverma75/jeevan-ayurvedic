@@ -21,21 +21,22 @@ export async function GET(req: NextRequest) {
         return NextResponse.json([])
       }
       
-      const pincode = await prisma.pincode.findUnique({
-        where: { id: pincodeIdNum as any },
-        select: { zipCode: true },
-      })
+      const pincodeResult = await prisma.pincode.findUnique({
+        where: { id: pincodeIdNum } as any,
+      }) as any
 
-      if (!pincode) {
+      if (!pincodeResult) {
         return NextResponse.json([])
       }
+
+      const zipCode = pincodeResult.zipCode as number
 
       // Find all pincodes with the same zipCode and get their unique cities
       const pincodesWithSameZip = await prisma.pincode.findMany({
         where: { 
-          zipCode: pincode.zipCode,
+          zipCode: zipCode,
           status: 1, // Only active pincodes
-        },
+        } as any,
         select: {
           cityId: true,
         },
