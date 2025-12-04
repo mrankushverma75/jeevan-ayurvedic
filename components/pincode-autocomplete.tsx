@@ -8,7 +8,7 @@ import { Loader2 } from 'lucide-react'
 
 interface PincodeOption {
   id: string
-  pincode: string
+  zipCode: string
   area: string
   city: {
     id: string
@@ -21,13 +21,14 @@ interface CityOption {
   id: string
   city: string
   state: string
+  country: string
 }
 
 interface PincodeAutocompleteProps {
   value?: string
   onPincodeChange: (pincodeId: string, pincode: string, area: string) => void
-  onCityChange: (cityId: string, city: string, state: string) => void
-  onAddressFill?: (address: { area: string; city: string; state: string }) => void
+  onCityChange: (cityId: string, city: string, state: string, country: string) => void
+  onAddressFill?: (address: { area: string; city: string; state: string; country: string }) => void
   selectedPincodeId?: string
   selectedCityId?: string
   disabled?: boolean
@@ -48,7 +49,56 @@ export function PincodeAutocomplete({
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [loading, setLoading] = useState(false)
   const [selectedPincode, setSelectedPincode] = useState<PincodeOption | null>(null)
+  const [localSelectedCityId, setLocalSelectedCityId] = useState<string>(selectedCityId || '')
   const timeoutRef = useRef<NodeJS.Timeout>()
+
+  // Sync pincode input when value prop changes
+  useEffect(() => {
+    if (value !== pincode) {
+      setPincode(value || '')
+    }
+  }, [value])
+
+  // Sync local state with prop when it changes externally
+  useEffect(() => {
+    if (selectedCityId !== localSelectedCityId) {
+      setLocalSelectedCityId(selectedCityId || '')
+    }
+  }, [selectedCityId])
+
+  // Load cities when component mounts with existing pincodeId (for editing)
+  useEffect(() => {
+    const loadCitiesForPincode = async () => {
+      if (selectedPincodeId && cities.length === 0) {
+        try {
+          const res = await fetch(`/api/cities?pincodeId=${selectedPincodeId}`)
+          if (res.ok) {
+            const cityData = await res.json()
+            setCities(cityData)
+            
+            // If only one city, auto-select it
+            if (cityData.length === 1) {
+              const city = cityData[0]
+              setLocalSelectedCityId(city.id)
+              onCityChange(city.id, city.city, city.state, city.country || 'India')
+            } else if (cityData.length > 1 && selectedCityId) {
+              // Multiple cities - pre-select if already selected
+              const preSelected = cityData.find((c: CityOption) => c.id === selectedCityId)
+              if (preSelected) {
+                setLocalSelectedCityId(preSelected.id)
+                onCityChange(preSelected.id, preSelected.city, preSelected.state, preSelected.country || 'India')
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error loading cities for pincode:', error)
+        }
+      }
+    }
+    
+    loadCitiesForPincode()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPincodeId]) // Only run when selectedPincodeId changes
 
   useEffect(() => {
     if (pincode.length >= 3) {
@@ -61,6 +111,10 @@ export function PincodeAutocomplete({
     } else {
       setPincodeOptions([])
       setShowSuggestions(false)
+      // Clear cities and selection when pincode is cleared
+      setCities([])
+      setLocalSelectedCityId('')
+      setSelectedPincode(null)
     }
 
     return () => {
@@ -87,10 +141,10 @@ export function PincodeAutocomplete({
   }
 
   const handlePincodeSelect = async (option: PincodeOption) => {
-    setPincode(option.pincode)
+    setPincode(option.zipCode)
     setSelectedPincode(option)
     setShowSuggestions(false)
-    onPincodeChange(option.id, option.pincode, option.area)
+    onPincodeChange(option.id, option.zipCode, option.area)
 
     // Fetch cities for this pincode
     try {
@@ -102,12 +156,13 @@ export function PincodeAutocomplete({
         // If only one city, auto-select it
         if (cityData.length === 1) {
           const city = cityData[0]
-          onCityChange(city.id, city.city, city.state)
+          onCityChange(city.id, city.city, city.state, city.country || 'India')
           if (onAddressFill) {
             onAddressFill({
               area: option.area,
               city: city.city,
               state: city.state,
+              country: city.country || 'India',
             })
           }
         } else if (cityData.length > 1) {
@@ -116,9 +171,18 @@ export function PincodeAutocomplete({
           if (selectedCityId) {
             const preSelected = cityData.find((c: CityOption) => c.id === selectedCityId)
             if (preSelected) {
-              onCityChange(preSelected.id, preSelected.city, preSelected.state)
+              setLocalSelectedCityId(preSelected.id)
+              onCityChange(preSelected.id, preSelected.city, preSelected.state, preSelected.country || 'India')
+            } else {
+              // Reset selection if previously selected city is not in the list
+              setLocalSelectedCityId('')
             }
+          } else {
+            setLocalSelectedCityId('')
           }
+        } else {
+          // No cities found, reset selection
+          setLocalSelectedCityId('')
         }
       }
     } catch (error) {
@@ -154,7 +218,7 @@ export function PincodeAutocomplete({
                 className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
                 onClick={() => handlePincodeSelect(option)}
               >
-                <div className="font-medium">{option.pincode}</div>
+                <div className="font-medium">{option.zipCode}</div>
                 <div className="text-sm text-muted-foreground">
                   {option.area}, {option.city.city}, {option.city.state}
                 </div>
@@ -169,16 +233,19 @@ export function PincodeAutocomplete({
           <Label htmlFor="city">City (Multiple cities found for this pincode)</Label>
           <Select
             id="city"
-            value={selectedCityId || ''}
+            value={localSelectedCityId}
             onChange={(e) => {
-              const city = cities.find((c) => c.id === e.target.value)
+              const selectedId = e.target.value
+              setLocalSelectedCityId(selectedId)
+              const city = cities.find((c) => c.id === selectedId)
               if (city) {
-                onCityChange(city.id, city.city, city.state)
+                onCityChange(city.id, city.city, city.state, city.country || 'India')
                 if (onAddressFill && selectedPincode) {
                   onAddressFill({
                     area: selectedPincode.area,
                     city: city.city,
                     state: city.state,
+                    country: city.country || 'India',
                   })
                 }
               }

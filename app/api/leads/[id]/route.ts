@@ -7,9 +7,9 @@ import { rateLimit } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 const leadSchema = z.object({
-  name: z.string().min(1).optional(),
-  fatherName: z.string().optional(),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
+  name: z.union([z.string(), z.literal(''), z.null()]).optional().transform(val => val === '' || val === null ? undefined : val),
+  fatherName: z.union([z.string(), z.literal(''), z.null()]).optional().transform(val => val === '' || val === null ? undefined : val),
+  gender: z.union([z.enum(['MALE', 'FEMALE', 'OTHER']), z.literal(''), z.null()]).optional().transform(val => val === '' || val === null ? undefined : val),
   age: z.number().int().positive().optional(),
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
@@ -67,7 +67,7 @@ export async function GET(
         pincode: {
           select: {
             id: true,
-            pincode: true,
+            zipCode: true,
             area: true,
           },
         },
@@ -131,13 +131,22 @@ export async function PATCH(
 
     const body = await req.json()
     console.log('Lead update request body:', JSON.stringify(body, null, 2))
-    const data = leadSchema.parse(body)
-    console.log('Parsed lead data:', JSON.stringify(data, null, 2))
+    
+    // Use safeParse to allow extra fields and handle validation errors gracefully
+    const validationResult = leadSchema.safeParse(body)
+    if (!validationResult.success) {
+      console.error('Validation errors:', validationResult.error.errors)
+      return NextResponse.json({ error: validationResult.error.errors }, { status: 400 })
+    }
+    
+    const parsedData = validationResult.data
+    console.log('Parsed lead data:', JSON.stringify(parsedData, null, 2))
     console.log('Existing lead status:', existingLead.status)
 
     // Employees cannot reassign leads
-    if (session.user.role === 'EMPLOYEE' && 'assignedTo' in data) {
-      delete data.assignedTo
+    if (session.user.role === 'EMPLOYEE' && 'assignedTo' in body) {
+      delete body.assignedTo
+      if ('assignedTo' in parsedData) delete parsedData.assignedTo
     }
 
     // Get current user details for notifications
@@ -147,9 +156,81 @@ export async function PATCH(
     })
     console.log('Current user:', currentUser)
 
+    // Build update data object, only including fields that are explicitly provided in the request body
+    // Use the original body to check what fields were sent, not the transformed data
+    const updateData: any = {}
+    
+    // Helper function to safely add field to updateData
+    const addField = (key: string, value: any, transform?: (val: any) => any) => {
+      if (key in body) {
+        const transformedValue = transform ? transform(value) : value
+        // Convert empty string to null, keep null as null, keep undefined as undefined
+        if (transformedValue === '' || transformedValue === null) {
+          updateData[key] = null
+        } else if (transformedValue !== undefined) {
+          updateData[key] = transformedValue
+        }
+      }
+    }
+    
+    // Only update fields that are present in the request body
+    addField('name', body.name)
+    addField('fatherName', body.fatherName)
+    addField('gender', body.gender)
+    addField('age', body.age, (val) => val !== undefined && val !== null ? Number(val) : undefined)
+    addField('phone', body.phone)
+    addField('email', body.email)
+    addField('alternatePhone', body.alternatePhone)
+    addField('disease', body.disease)
+    addField('duration', body.duration)
+    addField('patientHistory', body.patientHistory)
+    addField('vppAmount', body.vppAmount, (val) => val !== undefined && val !== null ? Number(val) : undefined)
+    addField('addressLine1', body.addressLine1)
+    addField('addressLine2', body.addressLine2)
+    addField('addressLine3', body.addressLine3)
+    addField('addressLine4', body.addressLine4)
+    addField('addressLine5', body.addressLine5)
+    addField('addressLine6', body.addressLine6)
+    // Handle pincodeId and cityId - always update if present in body
+    if ('pincodeId' in body) {
+      console.log('Processing pincodeId:', body.pincodeId, typeof body.pincodeId)
+      if (body.pincodeId === '' || body.pincodeId === null || body.pincodeId === undefined || body.pincodeId === 'null') {
+        updateData.pincodeId = null
+      } else {
+        const parsed = parseInt(String(body.pincodeId), 10)
+        updateData.pincodeId = isNaN(parsed) ? null : parsed
+      }
+      console.log('Final pincodeId in updateData:', updateData.pincodeId)
+    } else {
+      console.log('pincodeId not found in body')
+    }
+    if ('cityId' in body) {
+      console.log('Processing cityId:', body.cityId, typeof body.cityId)
+      if (body.cityId === '' || body.cityId === null || body.cityId === undefined || body.cityId === 'null') {
+        updateData.cityId = null
+      } else {
+        const parsed = parseInt(String(body.cityId), 10)
+        updateData.cityId = isNaN(parsed) ? null : parsed
+      }
+      console.log('Final cityId in updateData:', updateData.cityId)
+    } else {
+      console.log('cityId not found in body')
+    }
+    addField('state', body.state)
+    addField('country', body.country)
+    addField('preferredLanguage', body.preferredLanguage)
+    addField('preferredCommunication', body.preferredCommunication)
+    if ('source' in body) updateData.source = body.source
+    if ('status' in body) updateData.status = body.status
+    if ('priority' in body) updateData.priority = body.priority
+    addField('notes', body.notes)
+    if ('assignedTo' in body) updateData.assignedTo = body.assignedTo
+
+    console.log('Update data to be sent to Prisma:', JSON.stringify(updateData, null, 2))
+
     const lead = await prisma.lead.update({
       where: { id: params.id },
-      data,
+      data: updateData,
       include: {
         assignedUser: {
           select: {
@@ -168,7 +249,7 @@ export async function PATCH(
         pincode: {
           select: {
             id: true,
-            pincode: true,
+            zipCode: true,
             area: true,
           },
         },
@@ -180,21 +261,21 @@ export async function PATCH(
       'UPDATE',
       'Lead',
       lead.id,
-      { old: existingLead, new: lead },
-      `Updated lead: ${lead.name}`,
+      { old: existingLead, new: lead, updatedFields: updateData },
+      `Updated lead: ${lead.name || lead.phone || 'Lead'}`,
       ip,
       req.headers.get('user-agent') || undefined
     )
 
     // Create notifications
     // 1. If assigned to changed, notify the new assignee
-    if (data.assignedTo && data.assignedTo !== existingLead.assignedTo) {
-      console.log('Creating notification for lead assignment:', { userId: data.assignedTo, leadId: lead.id })
+    if (updateData.assignedTo && updateData.assignedTo !== existingLead.assignedTo) {
+      console.log('Creating notification for lead assignment:', { userId: updateData.assignedTo, leadId: lead.id })
       const notif = await createNotification({
-        userId: data.assignedTo,
+        userId: updateData.assignedTo,
         type: 'LEAD_ASSIGNED',
         title: 'New Lead Assigned',
-        message: `You have been assigned a new lead: ${lead.name}`,
+        message: `You have been assigned a new lead: ${lead.name || lead.phone || 'New Lead'}`,
         entityType: 'Lead',
         entityId: lead.id,
       })
@@ -202,10 +283,10 @@ export async function PATCH(
     }
 
     // 2. If status changed, notify relevant users
-    if (data.status && data.status !== existingLead.status) {
+    if (updateData.status && updateData.status !== existingLead.status) {
       console.log('Status changed:', { 
         oldStatus: existingLead.status, 
-        newStatus: data.status, 
+        newStatus: updateData.status, 
         currentUserRole: currentUser?.role,
         assignedTo: lead.assignedTo,
         sessionUserId: session.user.id 
@@ -220,7 +301,7 @@ export async function PATCH(
           userId: lead.assignedTo,
           type: 'LEAD_STATUS_CHANGED',
           title: 'Lead Status Updated',
-          message: `Admin ${userName} changed lead "${lead.name}" status to ${data.status}`,
+          message: `Admin ${userName} changed lead "${lead.name || lead.phone || 'Lead'}" status to ${updateData.status}`,
           entityType: 'Lead',
           entityId: lead.id,
         })
@@ -239,7 +320,7 @@ export async function PATCH(
             userId: admin.id,
             type: 'LEAD_STATUS_CHANGED',
             title: 'Lead Status Updated',
-            message: `Employee ${userName} changed lead "${lead.name}" status to ${data.status}`,
+            message: `Employee ${userName} changed lead "${lead.name || lead.phone || 'Lead'}" status to ${updateData.status}`,
             entityType: 'Lead',
             entityId: lead.id,
           })
@@ -296,7 +377,7 @@ export async function DELETE(
       'Lead',
       params.id,
       lead,
-      `Deleted lead: ${lead.name}`,
+      `Deleted lead: ${lead.name || lead.phone || 'Lead'}`,
       ip,
       req.headers.get('user-agent') || undefined
     )

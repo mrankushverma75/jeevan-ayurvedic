@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,9 +21,9 @@ import { Pagination } from '@/components/ui/pagination'
 
 const leadSchema = z.object({
   // Patient Information
-  name: z.string().min(1, 'Name is required'),
+  name: z.string().optional(),
   fatherName: z.string().optional(),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
   age: z.number().int().positive().optional().or(z.nan()),
   phone: z.string().min(1, 'Phone is required'),
   email: z.string().email().optional().or(z.literal('')),
@@ -42,8 +42,8 @@ const leadSchema = z.object({
   addressLine4: z.string().optional(),
   addressLine5: z.string().optional(),
   addressLine6: z.string().optional(),
-  pincodeId: z.string().optional(),
-  cityId: z.string().optional(),
+  pincodeId: z.string().optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
+  cityId: z.string().optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
   state: z.string().optional(),
   country: z.string().optional(),
   
@@ -89,6 +89,7 @@ export default function LeadsPage() {
   const limit = 20
   const [selectedPincodeId, setSelectedPincodeId] = useState<string>('')
   const [selectedCityId, setSelectedCityId] = useState<string>('')
+  const [pincodeZipCode, setPincodeZipCode] = useState<string>('')
   const [addressData, setAddressData] = useState<{ area: string; city: string; state: string } | null>(null)
   const [activeTab, setActiveTab] = useState('patient')
 
@@ -119,7 +120,7 @@ export default function LeadsPage() {
     setPage(1)
   }
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<LeadFormData>({
+  const { register, handleSubmit, reset, setValue, watch, getValues, trigger, formState: { errors } } = useForm<LeadFormData>({
     resolver: zodResolver(leadSchema),
     defaultValues: {
       status: 'NEW',
@@ -129,19 +130,55 @@ export default function LeadsPage() {
     },
   })
 
+  // Sync selectedPincodeId and selectedCityId with form values
+  useEffect(() => {
+    if (selectedPincodeId) {
+      setValue('pincodeId', String(selectedPincodeId), { shouldValidate: false })
+    }
+  }, [selectedPincodeId, setValue])
+
+  useEffect(() => {
+    if (selectedCityId) {
+      setValue('cityId', String(selectedCityId), { shouldValidate: false })
+    }
+  }, [selectedCityId, setValue])
+
   const createMutation = useMutation({
     mutationFn: async (data: LeadFormData) => {
+      // Build request body with proper pincodeId and cityId handling
+      const requestBody: any = {
+        ...data,
+        state: addressData?.state || data.state,
+      }
+      
+      // Handle pincodeId and cityId
+      if (data.pincodeId && data.pincodeId !== '' && data.pincodeId !== 'null') {
+        requestBody.pincodeId = String(data.pincodeId)
+      } else if (selectedPincodeId && selectedPincodeId !== '' && selectedPincodeId !== 'null') {
+        requestBody.pincodeId = String(selectedPincodeId)
+      } else {
+        requestBody.pincodeId = null
+      }
+      
+      if (data.cityId && data.cityId !== '' && data.cityId !== 'null') {
+        requestBody.cityId = String(data.cityId)
+      } else if (selectedCityId && selectedCityId !== '' && selectedCityId !== 'null') {
+        requestBody.cityId = String(selectedCityId)
+      } else {
+        requestBody.cityId = null
+      }
+      
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          pincodeId: selectedPincodeId || undefined,
-          cityId: selectedCityId || undefined,
-          state: addressData?.state || data.state,
-        }),
+        body: JSON.stringify(requestBody),
       })
-      if (!res.ok) throw new Error('Failed to create lead')
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Failed to create lead' }))
+        console.error('Create lead error:', errorData)
+        throw new Error(errorData.error || errorData.details?.[0]?.message || 'Failed to create lead')
+      }
       return res.json()
     },
     onSuccess: () => {
@@ -150,23 +187,47 @@ export default function LeadsPage() {
       reset()
       setSelectedPincodeId('')
       setSelectedCityId('')
+      setPincodeZipCode('')
       setAddressData(null)
     },
   })
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<LeadFormData> }) => {
+      // Ensure pincodeId and cityId are always included (even if null)
+      const requestBody: any = {
+        ...data,
+        // Ensure state is included from addressData if available
+        state: addressData?.state || data.state,
+      }
+      
+      // Explicitly include pincodeId and cityId (they should already be in data, but ensure they're there)
+      if ('pincodeId' in data && data.pincodeId !== undefined && data.pincodeId !== '' && data.pincodeId !== 'null') {
+        requestBody.pincodeId = String(data.pincodeId)
+      } else if (selectedPincodeId && selectedPincodeId !== '' && selectedPincodeId !== 'null') {
+        requestBody.pincodeId = String(selectedPincodeId)
+      } else {
+        requestBody.pincodeId = null
+      }
+      
+      if ('cityId' in data && data.cityId !== undefined && data.cityId !== '' && data.cityId !== 'null') {
+        requestBody.cityId = String(data.cityId)
+      } else if (selectedCityId && selectedCityId !== '' && selectedCityId !== 'null') {
+        requestBody.cityId = String(selectedCityId)
+      } else {
+        requestBody.cityId = null
+      }
+      
       const res = await fetch(`/api/leads/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...data,
-          pincodeId: selectedPincodeId || undefined,
-          cityId: selectedCityId || undefined,
-          state: addressData?.state || data.state,
-        }),
+        body: JSON.stringify(requestBody),
       })
-      if (!res.ok) throw new Error('Failed to update lead')
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error('Update failed:', errorText)
+        throw new Error('Failed to update lead')
+      }
       return res.json()
     },
     onSuccess: () => {
@@ -176,6 +237,7 @@ export default function LeadsPage() {
       reset()
       setSelectedPincodeId('')
       setSelectedCityId('')
+      setPincodeZipCode('')
       setAddressData(null)
     },
   })
@@ -193,11 +255,32 @@ export default function LeadsPage() {
   })
 
   const onSubmit = (data: LeadFormData) => {
-    const submitData = {
+    // Get current form values (including any setValue updates)
+    const currentValues = getValues()
+    
+    // Get pincodeId and cityId - prefer current form values, fallback to state
+    const pincodeIdValue = currentValues.pincodeId || selectedPincodeId || null
+    const cityIdValue = currentValues.cityId || selectedCityId || null
+    
+    const submitData: any = {
       ...data,
       age: isNaN(data.age as any) ? undefined : data.age,
       vppAmount: isNaN(data.vppAmount as any) ? undefined : data.vppAmount,
     }
+    
+    // Handle pincodeId and cityId - only include if they have actual values
+    if (pincodeIdValue && pincodeIdValue !== 'null' && pincodeIdValue !== '') {
+      submitData.pincodeId = String(pincodeIdValue)
+    } else {
+      submitData.pincodeId = null
+    }
+    
+    if (cityIdValue && cityIdValue !== 'null' && cityIdValue !== '') {
+      submitData.cityId = String(cityIdValue)
+    } else {
+      submitData.cityId = null
+    }
+    
     if (editingLead) {
       updateMutation.mutate({ id: editingLead.id, data: submitData })
     } else {
@@ -205,10 +288,18 @@ export default function LeadsPage() {
     }
   }
 
+  const onError = (errors: any) => {
+    // Form validation errors are handled by react-hook-form
+  }
+
   const handleEdit = (lead: any) => {
     setEditingLead(lead)
-    setSelectedPincodeId(lead.pincodeId || '')
-    setSelectedCityId(lead.cityId || '')
+    const pincodeIdStr = lead.pincodeId ? String(lead.pincodeId) : ''
+    const cityIdStr = lead.cityId ? String(lead.cityId) : ''
+    const zipCodeStr = lead.pincode?.zipCode ? String(lead.pincode.zipCode) : ''
+    setSelectedPincodeId(pincodeIdStr)
+    setSelectedCityId(cityIdStr)
+    setPincodeZipCode(zipCodeStr)
     reset({
       name: lead.name,
       fatherName: lead.fatherName || '',
@@ -227,6 +318,8 @@ export default function LeadsPage() {
       addressLine4: lead.addressLine4 || '',
       addressLine5: lead.addressLine5 || '',
       addressLine6: lead.addressLine6 || '',
+      pincodeId: pincodeIdStr,
+      cityId: cityIdStr,
       state: lead.state || '',
       country: lead.country || 'India',
       preferredLanguage: lead.preferredLanguage || '',
@@ -257,7 +350,7 @@ export default function LeadsPage() {
           <h1 className="text-3xl font-bold">My Leads</h1>
           <p className="text-gray-500">Manage patient leads</p>
         </div>
-        <Button onClick={() => { setOpen(true); setEditingLead(null); reset(); setSelectedPincodeId(''); setSelectedCityId(''); setAddressData(null); setActiveTab('patient'); }} className="shadow-md">
+        <Button onClick={() => { setOpen(true); setEditingLead(null); reset(); setSelectedPincodeId(''); setSelectedCityId(''); setPincodeZipCode(''); setAddressData(null); setActiveTab('patient'); }} className="shadow-md">
           <Plus className="mr-2 h-4 w-4" />
           Add Lead
         </Button>
@@ -284,7 +377,6 @@ export default function LeadsPage() {
               <option value="NEW">New</option>
               <option value="CONTACTED">Contacted</option>
               <option value="QUALIFIED">Qualified</option>
-              <option value="CONVERTED">Converted</option>
               <option value="LOST">Lost</option>
             </Select>
             <Select
@@ -336,7 +428,7 @@ export default function LeadsPage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Source</TableHead>
-                  <TableHead>VPP Amount</TableHead>
+                  <TableHead>Total Amount</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -420,7 +512,24 @@ export default function LeadsPage() {
       )}
 
       {/* Create/Edit Lead Dialog */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog 
+        open={open} 
+        onOpenChange={(newOpen) => {
+          // Only allow closing if not submitting
+          if (!newOpen && !createMutation.isPending && !updateMutation.isPending) {
+            setOpen(false)
+            setEditingLead(null)
+            reset()
+            setSelectedPincodeId('')
+            setSelectedCityId('')
+            setAddressData(null)
+          }
+        }}
+        onInteractOutside={(e) => {
+          // Prevent closing on outside click
+          e.preventDefault()
+        }}
+      >
         <DialogContent className="max-w-5xl max-h-[95vh] overflow-y-auto">
           <DialogHeader className="border-b pb-4">
             <DialogTitle className="text-2xl font-bold flex items-center gap-2">
@@ -440,7 +549,7 @@ export default function LeadsPage() {
               {editingLead ? 'Update patient information and medical details' : 'Enter patient details to create a new lead'}
             </p>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-6">
+          <form onSubmit={handleSubmit(onSubmit, onError)} className="mt-6" noValidate>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-4 mb-6">
                 <TabsTrigger value="patient" className="flex items-center gap-2">
@@ -474,8 +583,8 @@ export default function LeadsPage() {
                   <CardContent className="pt-6">
                     <div className="grid gap-6 md:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="name" className="text-sm font-semibold flex items-center gap-1">
-                          Patient Name <span className="text-destructive">*</span>
+                        <Label htmlFor="name" className="text-sm font-semibold">
+                          Patient Name
                         </Label>
                         <Input id="name" {...register('name')} className="h-11" placeholder="Enter patient full name" />
                         {errors.name && <p className="text-sm text-destructive flex items-center gap-1 mt-1"><Info className="h-3 w-3" /> {errors.name.message}</p>}
@@ -548,11 +657,10 @@ export default function LeadsPage() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="vppAmount" className="text-sm font-semibold">
-                          VPP Amount
-                          <span className="text-xs text-muted-foreground font-normal ml-2">(Value Payable Post)</span>
+                          Total Amount / Estimated Order Value
                         </Label>
                         <Input id="vppAmount" type="number" step="0.01" {...register('vppAmount', { valueAsNumber: true })} className="h-11" placeholder="0.00" />
-                        <p className="text-xs text-muted-foreground mt-1">Amount customer will pay on delivery</p>
+                        <p className="text-xs text-muted-foreground mt-1">Estimated total value of the order (VPP amount will be determined when converting to order)</p>
                       </div>
                     </div>
                   </CardContent>
@@ -604,25 +712,31 @@ export default function LeadsPage() {
 
                       <div className="border-t pt-6 mt-2">
                         <h4 className="text-sm font-semibold mb-4 text-muted-foreground">LOCATION</h4>
+                        {/* Hidden inputs to register pincodeId and cityId with react-hook-form */}
+                        <input type="hidden" {...register('pincodeId')} />
+                        <input type="hidden" {...register('cityId')} />
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="md:col-span-2">
                             <PincodeAutocomplete
-                              value={watch('pincodeId') || ''}
+                              value={pincodeZipCode || watch('pincodeId') || ''}
                               onPincodeChange={(pincodeId, pincode, area) => {
                                 setSelectedPincodeId(pincodeId)
-                                setValue('pincodeId', pincodeId)
+                                setPincodeZipCode(pincode)
+                                setValue('pincodeId', String(pincodeId), { shouldValidate: true })
                               }}
-                              onCityChange={(cityId, city, state) => {
+                              onCityChange={(cityId, city, state, country) => {
                                 setSelectedCityId(cityId)
-                                setValue('cityId', cityId)
-                                setValue('state', state)
+                                setValue('cityId', String(cityId), { shouldValidate: true })
+                                setValue('state', state, { shouldValidate: true })
+                                setValue('country', country, { shouldValidate: true })
                               }}
                               onAddressFill={(data) => {
                                 setAddressData(data)
                                 if (!watch('addressLine1')) {
-                                  setValue('addressLine1', data.area)
+                                  setValue('addressLine1', data.area, { shouldValidate: true })
                                 }
-                                setValue('state', data.state)
+                                setValue('state', data.state, { shouldValidate: true })
+                                setValue('country', data.country, { shouldValidate: true })
                               }}
                               selectedPincodeId={selectedPincodeId}
                               selectedCityId={selectedCityId}
@@ -707,10 +821,30 @@ export default function LeadsPage() {
             </Tabs>
 
             <DialogFooter className="border-t pt-4 mt-6">
-              <Button type="button" variant="outline" onClick={() => { setOpen(false); reset(); setSelectedPincodeId(''); setSelectedCityId(''); setAddressData(null); setActiveTab('patient'); }}>
+              <Button type="button" variant="outline" onClick={() => { setOpen(false); reset(); setSelectedPincodeId(''); setSelectedCityId(''); setPincodeZipCode(''); setAddressData(null); setActiveTab('patient'); }}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="min-w-[120px]">
+              <Button 
+                type="submit" 
+                disabled={createMutation.isPending || updateMutation.isPending} 
+                className="min-w-[120px]"
+                onClick={async (e) => {
+                  // Ensure form values are up to date before validation
+                  if (selectedPincodeId) {
+                    setValue('pincodeId', String(selectedPincodeId), { shouldValidate: true })
+                  }
+                  if (selectedCityId) {
+                    setValue('cityId', String(selectedCityId), { shouldValidate: true })
+                  }
+                  
+                  // Small delay to ensure setValue has taken effect
+                  await new Promise(resolve => setTimeout(resolve, 10))
+                  
+                  // Trigger validation
+                  await trigger()
+                  // Don't prevent default - let form submit naturally
+                }}
+              >
                 {createMutation.isPending || updateMutation.isPending ? (
                   <>Saving...</>
                 ) : editingLead ? (
@@ -781,8 +915,8 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
           addressLine4: formData.addressLine4,
           addressLine5: formData.addressLine5,
           addressLine6: formData.addressLine6,
-          pincodeId: selectedPincodeId || undefined,
-          cityId: selectedCityId || undefined,
+          pincodeId: selectedPincodeId ? String(selectedPincodeId) : undefined,
+          cityId: selectedCityId ? String(selectedCityId) : undefined,
           state: addressData?.state || formData.state,
           country: formData.country,
           station: formData.station,
@@ -815,15 +949,15 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
         addressLine4: lead.addressLine4 || '',
         addressLine5: lead.addressLine5 || '',
         addressLine6: lead.addressLine6 || '',
-        pincodeId: lead.pincodeId || '',
-        cityId: lead.cityId || '',
+        pincodeId: lead.pincodeId ? String(lead.pincodeId) : '',
+        cityId: lead.cityId ? String(lead.cityId) : '',
         state: lead.state || '',
         country: lead.country || 'India',
         station: '',
         notes: '',
       })
-      setSelectedPincodeId(lead.pincodeId || '')
-      setSelectedCityId(lead.cityId || '')
+      setSelectedPincodeId(lead.pincodeId ? String(lead.pincodeId) : '')
+      setSelectedCityId(lead.cityId ? String(lead.cityId) : '')
     }
   }, [lead, open])
 
@@ -965,16 +1099,16 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
                     setSelectedPincodeId(pincodeId)
                     setFormData({ ...formData, pincodeId })
                   }}
-                  onCityChange={(cityId, city, state) => {
+                  onCityChange={(cityId, city, state, country) => {
                     setSelectedCityId(cityId)
-                    setFormData({ ...formData, cityId, state })
+                    setFormData({ ...formData, cityId, state, country })
                   }}
                   onAddressFill={(data) => {
                     setAddressData(data)
                     if (!formData.addressLine1) {
-                      setFormData({ ...formData, addressLine1: data.area, state: data.state })
+                      setFormData({ ...formData, addressLine1: data.area, state: data.state, country: data.country })
                     } else {
-                      setFormData({ ...formData, state: data.state })
+                      setFormData({ ...formData, state: data.state, country: data.country })
                     }
                   }}
                   selectedPincodeId={selectedPincodeId}

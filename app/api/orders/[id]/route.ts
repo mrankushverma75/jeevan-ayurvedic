@@ -63,7 +63,7 @@ export async function GET(
         pincode: {
           select: {
             id: true,
-            pincode: true,
+            zipCode: true,
             area: true,
           },
         },

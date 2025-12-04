@@ -41,6 +41,15 @@ export default function OrdersPage() {
   })
   const [page, setPage] = useState(1)
   const limit = 20
+  const [dispatchDialog, setDispatchDialog] = useState<{
+    open: boolean
+    order: any
+  }>({ open: false, order: null })
+  const [dispatchData, setDispatchData] = useState({
+    trackingId: '',
+    courierService: '',
+    weight: '',
+  })
 
   const queryClient = useQueryClient()
 
@@ -66,6 +75,48 @@ export default function OrdersPage() {
   const handleFilterChange = (newFilters: typeof filters) => {
     setFilters(newFilters)
     setPage(1)
+  }
+
+  const dispatchMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await fetch(`/api/orders/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          status: 'DISPATCHED',
+          dispatchDate: new Date().toISOString(),
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to dispatch order')
+      return res.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      setDispatchDialog({ open: false, order: null })
+      setDispatchData({ trackingId: '', courierService: '', weight: '' })
+    },
+  })
+
+  const handleDispatch = (order: any) => {
+    setDispatchDialog({ open: true, order })
+    setDispatchData({
+      trackingId: order.trackingId || '',
+      courierService: order.courierService || '',
+      weight: order.weight ? order.weight.toString() : '',
+    })
+  }
+
+  const confirmDispatch = () => {
+    if (!dispatchDialog.order) return
+    dispatchMutation.mutate({
+      id: dispatchDialog.order.id,
+      data: {
+        trackingId: dispatchData.trackingId,
+        courierService: dispatchData.courierService,
+        weight: dispatchData.weight ? parseFloat(dispatchData.weight) : undefined,
+      },
+    })
   }
 
   return (
@@ -147,13 +198,14 @@ export default function OrdersPage() {
                   <TableHead>Amount</TableHead>
                   <TableHead>Received</TableHead>
                   <TableHead>Tracking ID</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>Dispatch Date</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No orders found
                     </TableCell>
                   </TableRow>
@@ -188,7 +240,21 @@ export default function OrdersPage() {
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell>{formatDateTime(order.createdAt)}</TableCell>
+                      <TableCell>
+                        {order.dispatchDate ? formatDateTime(order.dispatchDate) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {order.status !== 'DISPATCHED' && order.status !== 'CANCELLED' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDispatch(order)}
+                          >
+                            <Truck className="h-4 w-4 mr-1" />
+                            Dispatch
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -212,6 +278,66 @@ export default function OrdersPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Dispatch Dialog */}
+      <Dialog open={dispatchDialog.open} onOpenChange={(open) => setDispatchDialog({ ...dispatchDialog, open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dispatch Order</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Order: {dispatchDialog.order?.orderNumber}
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="trackingId">Tracking ID (EPP Number) *</Label>
+              <Input
+                id="trackingId"
+                value={dispatchData.trackingId}
+                onChange={(e) => setDispatchData({ ...dispatchData, trackingId: e.target.value })}
+                placeholder="CU507364803IN"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="courierService">Courier Service *</Label>
+              <Select
+                id="courierService"
+                value={dispatchData.courierService}
+                onChange={(e) => setDispatchData({ ...dispatchData, courierService: e.target.value })}
+                required
+              >
+                <option value="">Select Courier</option>
+                <option value="INDIA_POST">India Post</option>
+                <option value="BLUEDART">BlueDart</option>
+                <option value="ECOM">ECOM Express</option>
+                <option value="OTHER">Other</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="weight">Weight (grams)</Label>
+              <Input
+                id="weight"
+                type="number"
+                value={dispatchData.weight}
+                onChange={(e) => setDispatchData({ ...dispatchData, weight: e.target.value })}
+                placeholder="500"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDispatchDialog({ ...dispatchDialog, open: false })}>
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmDispatch}
+              disabled={dispatchMutation.isPending || !dispatchData.trackingId || !dispatchData.courierService}
+            >
+              {dispatchMutation.isPending ? 'Dispatching...' : 'Dispatch Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
           pincode: {
             select: {
               id: true,
-              pincode: true,
+              zipCode: true,
               area: true,
             },
           },
@@ -180,18 +180,36 @@ export async function POST(req: NextRequest) {
       exists = await prisma.order.findUnique({ where: { orderNumber } })
     }
 
+    // Convert pincodeId and cityId from string to int or null for Prisma
+    const orderData: any = {
+      ...data,
+      leadId: data.leadId,
+      orderNumber,
+      patientName: lead.name,
+      patientId: orderNumber, // Use order number as patient ID initially
+      assignedTo,
+      status: 'PENDING',
+      bookedBy: session.user.id,
+    }
+
+    // Convert pincodeId and cityId to integers or null
+    if (data.pincodeId && data.pincodeId !== '' && data.pincodeId !== 'null') {
+      const parsed = parseInt(String(data.pincodeId), 10)
+      orderData.pincodeId = isNaN(parsed) ? null : parsed
+    } else {
+      orderData.pincodeId = null
+    }
+
+    if (data.cityId && data.cityId !== '' && data.cityId !== 'null') {
+      const parsed = parseInt(String(data.cityId), 10)
+      orderData.cityId = isNaN(parsed) ? null : parsed
+    } else {
+      orderData.cityId = null
+    }
+
     // Create order
     const order = await prisma.order.create({
-      data: {
-        ...data,
-        leadId: data.leadId,
-        orderNumber,
-        patientName: lead.name,
-        patientId: orderNumber, // Use order number as patient ID initially
-        assignedTo,
-        status: 'PENDING',
-        bookedBy: session.user.id,
-      },
+      data: orderData,
       include: {
         lead: {
           select: {

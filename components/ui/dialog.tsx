@@ -5,9 +5,10 @@ interface DialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   children: React.ReactNode
+  onInteractOutside?: (e: React.MouseEvent) => void
 }
 
-const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
+const Dialog = ({ open, onOpenChange, children, onInteractOutside }: DialogProps) => {
   React.useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
@@ -21,10 +22,18 @@ const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
 
   if (!open) return null
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (onInteractOutside) {
+      onInteractOutside(e)
+    } else {
+      onOpenChange(false)
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={() => onOpenChange(false)}
+      onClick={handleBackdropClick}
     >
       <div className="fixed inset-0 bg-black/50" />
       <div

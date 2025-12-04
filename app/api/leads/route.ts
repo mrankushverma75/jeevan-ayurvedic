@@ -8,9 +8,9 @@ import { z } from 'zod'
 
 const leadSchema = z.object({
   // Patient Information
-  name: z.string().min(1),
+  name: z.string().optional(),
   fatherName: z.string().optional(),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER']).optional().or(z.literal('')).transform(val => val === '' ? undefined : val),
   age: z.number().int().positive().optional(),
   phone: z.string().min(1),
   email: z.string().email().optional().or(z.literal('')),
@@ -29,8 +29,8 @@ const leadSchema = z.object({
   addressLine4: z.string().optional(),
   addressLine5: z.string().optional(),
   addressLine6: z.string().optional(),
-  pincodeId: z.string().optional(),
-  cityId: z.string().optional(),
+  pincodeId: z.union([z.string(), z.null()]).optional().transform(val => val === 'null' || val === '' ? null : val),
+  cityId: z.union([z.string(), z.null()]).optional().transform(val => val === 'null' || val === '' ? null : val),
   state: z.string().optional(),
   country: z.string().optional(),
   
@@ -75,8 +75,15 @@ export async function GET(req: NextRequest) {
       where.assignedTo = session.user.id
     }
 
+    // Exclude converted leads by default (they are now orders/bookings)
+    // Only show converted leads if explicitly filtered by CONVERTED status
     if (status) {
       where.status = status
+    } else {
+      // Exclude CONVERTED status by default since they are now orders
+      where.status = {
+        not: 'CONVERTED'
+      }
     }
     if (priority) {
       where.priority = priority
@@ -119,7 +126,7 @@ export async function GET(req: NextRequest) {
           pincode: {
             select: {
               id: true,
-              pincode: true,
+              zipCode: true,
               area: true,
             },
           },
@@ -168,19 +175,51 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const data = leadSchema.parse(body)
+    console.log('Lead creation request body:', JSON.stringify(body, null, 2))
+    
+    // Validate the request
+    const validationResult = leadSchema.safeParse(body)
+    if (!validationResult.success) {
+      console.error('Lead creation validation errors:', validationResult.error.errors)
+      return NextResponse.json({ 
+        error: 'Validation failed', 
+        details: validationResult.error.errors 
+      }, { status: 400 })
+    }
+    
+    const data = validationResult.data
 
     // Employees can only assign leads to themselves
     const assignedTo = session.user.role === 'ADMIN' ? (body.assignedTo || session.user.id) : session.user.id
 
+    // Build lead data, handling pincodeId and cityId conversion
+    const leadData: any = {
+      ...data,
+      assignedTo,
+      status: data.status || 'NEW',
+      priority: data.priority || 'MEDIUM',
+      source: data.source || 'OTHER',
+    }
+    
+    // Convert pincodeId and cityId from string to int or null
+    if (data.pincodeId && data.pincodeId !== 'null' && data.pincodeId !== '') {
+      const parsed = parseInt(String(data.pincodeId), 10)
+      leadData.pincodeId = isNaN(parsed) ? null : parsed
+    } else {
+      leadData.pincodeId = null
+    }
+    
+    if (data.cityId && data.cityId !== 'null' && data.cityId !== '') {
+      const parsed = parseInt(String(data.cityId), 10)
+      leadData.cityId = isNaN(parsed) ? null : parsed
+    } else {
+      leadData.cityId = null
+    }
+    
+    console.log('Creating lead with data:', JSON.stringify(leadData, null, 2))
+
     const lead = await prisma.lead.create({
-      data: {
-        ...data,
-        assignedTo,
-        status: data.status || 'NEW',
-        priority: data.priority || 'MEDIUM',
-        source: data.source || 'OTHER',
-      },
+      data: leadData,
       include: {
         assignedUser: {
           select: {
@@ -199,7 +238,7 @@ export async function POST(req: NextRequest) {
         pincode: {
           select: {
             id: true,
-            pincode: true,
+            zipCode: true,
             area: true,
           },
         },
@@ -212,7 +251,7 @@ export async function POST(req: NextRequest) {
       'Lead',
       lead.id,
       { ...data, assignedTo },
-      `Created lead: ${lead.name}`,
+      `Created lead: ${lead.name || lead.phone || 'New Lead'}`,
       ip,
       req.headers.get('user-agent') || undefined
     )
@@ -229,7 +268,7 @@ export async function POST(req: NextRequest) {
         userId: assignedTo,
         type: 'LEAD_ASSIGNED',
         title: 'New Lead Assigned',
-        message: `You have been assigned a new lead: ${lead.name}`,
+        message: `You have been assigned a new lead: ${lead.name || lead.phone || 'New Lead'}`,
         entityType: 'Lead',
         entityId: lead.id,
       })

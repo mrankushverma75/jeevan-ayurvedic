@@ -12,14 +12,19 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const query = searchParams.get('q') // Search query
     const pincode = searchParams.get('pincode') // Exact pincode search
-
+    
     if (pincode) {
       // Search by exact pincode
+      const pincodeNum = parseInt(pincode, 10)
+      if (isNaN(pincodeNum)) {
+        return NextResponse.json([])
+      }
+      
       const pincodes = await prisma.pincode.findMany({
         where: {
-          pincode: pincode,
-          status: 'active',
-        },
+          zipCode: pincodeNum,
+          status: 1,
+        } as any,
         include: {
           city: true,
         },
@@ -31,14 +36,25 @@ export async function GET(req: NextRequest) {
 
     if (query) {
       // Search by area name or pincode
+      // For zipCode, convert query to number if it's numeric, otherwise search as string in area
+      const queryNum = parseInt(query, 10)
+      const whereClause: any = {
+        status: 1,
+      }
+      
+      if (!isNaN(queryNum)) {
+        // If query is numeric, search by zipCode (exact match) or area
+        whereClause.OR = [
+          { area: { contains: query } },
+          { zipCode: queryNum },
+        ]
+      } else {
+        // If query is not numeric, only search by area
+        whereClause.area = { contains: query }
+      }
+      
       const pincodes = await prisma.pincode.findMany({
-        where: {
-          OR: [
-            { area: { contains: query } },
-            { pincode: { contains: query } },
-          ],
-          status: 'active',
-        },
+        where: whereClause,
         include: {
           city: true,
         },

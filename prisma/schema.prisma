@@ -149,7 +149,7 @@ model UserRoleAssignment {
 }
 
 model City {
-  id        String    @id @default(cuid())
+  id        Int       @id
   city      String
   alias     String?
   state     String
@@ -169,11 +169,11 @@ model City {
 }
 
 model Pincode {
-  id        String   @id @default(cuid())
+  id        Int      @id
   area      String
-  cityId    String
-  pincode   String
-  status    String   @default("active") // active, inactive
+  cityId    Int
+  zipCode   Int
+  status    Int      @default(1) // 1 = active, 0 = inactive (tinyint in DB)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -181,7 +181,7 @@ model Pincode {
   leads Lead[]
   orders Order[]
 
-  @@index([pincode])
+  @@index([zipCode])
   @@index([cityId])
   @@index([status])
 }
@@ -189,7 +189,7 @@ model Pincode {
 model Lead {
   id                String       @id @default(cuid())
   // Patient Information
-  name              String
+  name              String?
   fatherName        String?
   gender            String?      // MALE, FEMALE, OTHER
   age               Int?
@@ -210,8 +210,8 @@ model Lead {
   addressLine4      String?
   addressLine5      String?
   addressLine6      String?
-  pincodeId         String?
-  cityId            String?
+  pincodeId         Int?
+  cityId            Int?
   state             String?
   country           String?      @default("India")
   
@@ -275,8 +275,8 @@ model Order {
   addressLine4      String?
   addressLine5      String?
   addressLine6      String?
-  pincodeId         String?
-  cityId            String?
+  pincodeId         Int?
+  cityId            Int?
   state             String?
   country           String?      @default("India")
   station           String?       // Delivery station

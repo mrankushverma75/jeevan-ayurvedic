@@ -16,29 +16,53 @@ export async function GET(req: NextRequest) {
 
     if (pincodeId) {
       // Get cities for a specific pincode
+      const pincodeIdNum = parseInt(pincodeId, 10)
+      if (isNaN(pincodeIdNum)) {
+        return NextResponse.json([])
+      }
+      
       const pincode = await prisma.pincode.findUnique({
-        where: { id: pincodeId },
-        include: { city: true },
+        where: { id: pincodeIdNum },
+        select: { zipCode: true },
       })
 
       if (!pincode) {
         return NextResponse.json([])
       }
 
-      // If pincode has a city, return it; otherwise search for cities with same name
+      // Find all pincodes with the same zipCode and get their unique cities
+      const pincodesWithSameZip = await prisma.pincode.findMany({
+        where: { 
+          zipCode: pincode.zipCode,
+          status: 1, // Only active pincodes
+        },
+        select: {
+          cityId: true,
+        },
+      })
+
+      if (pincodesWithSameZip.length === 0) {
+        return NextResponse.json([])
+      }
+
+      // Get unique city IDs
+      const cityIds = [...new Set(pincodesWithSameZip.map(p => p.cityId))]
+      
+      // Get all unique cities
       const cities = await prisma.city.findMany({
         where: {
-          OR: [
-            { id: pincode.cityId },
-            { city: { contains: pincode.city.city } },
-          ],
+          id: { in: cityIds },
         },
-        include: {
-          pincodes: {
-            where: { pincode: pincode.pincode },
-            take: 1,
-          },
+        select: {
+          id: true,
+          city: true,
+          state: true,
+          country: true,
         },
+        orderBy: [
+          { city: 'asc' },
+          { state: 'asc' },
+        ],
       })
 
       return NextResponse.json(cities)
@@ -53,6 +77,12 @@ export async function GET(req: NextRequest) {
             { state: { contains: query } },
           ],
         },
+        select: {
+          id: true,
+          city: true,
+          state: true,
+          country: true,
+        },
         take: 20,
       })
 
@@ -62,6 +92,12 @@ export async function GET(req: NextRequest) {
     if (state) {
       const cities = await prisma.city.findMany({
         where: { state },
+        select: {
+          id: true,
+          city: true,
+          state: true,
+          country: true,
+        },
         take: 100,
       })
 
