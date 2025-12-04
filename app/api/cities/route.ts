@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       }
       
       const pincode = await prisma.pincode.findUnique({
-        where: { id: pincodeIdNum },
+        where: { id: pincodeIdNum as any },
         select: { zipCode: true },
       })
 
