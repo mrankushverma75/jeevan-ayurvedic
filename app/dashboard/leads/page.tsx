@@ -292,11 +292,36 @@ export default function LeadsPage() {
     // Form validation errors are handled by react-hook-form
   }
 
-  const handleEdit = (lead: any) => {
+  const handleEdit = async (lead: any) => {
     setEditingLead(lead)
     const pincodeIdStr = lead.pincodeId ? String(lead.pincodeId) : ''
     const cityIdStr = lead.cityId ? String(lead.cityId) : ''
-    const zipCodeStr = lead.pincode?.zipCode ? String(lead.pincode.zipCode) : ''
+    
+    // Try to fetch zipcode by searching with area name
+    let zipCodeStr = ''
+    if (lead.pincode?.area) {
+      try {
+        // Search pincodes by area name to get zipcode
+        const res = await fetch(`/api/pincodes?q=${encodeURIComponent(lead.pincode.area)}`)
+        if (res.ok) {
+          const pincodes = await res.json()
+          // Find the pincode matching our ID
+          const matchingPincode = pincodes.find((p: any) => String(p.id) === pincodeIdStr)
+          if (matchingPincode && matchingPincode.zipCode) {
+            zipCodeStr = String(matchingPincode.zipCode)
+          } else {
+            // Fallback to area name if zipcode not found
+            zipCodeStr = lead.pincode.area
+          }
+        } else {
+          zipCodeStr = lead.pincode.area
+        }
+      } catch (error) {
+        console.error('Error fetching pincode zipcode:', error)
+        zipCodeStr = lead.pincode.area
+      }
+    }
+    
     setSelectedPincodeId(pincodeIdStr)
     setSelectedCityId(cityIdStr)
     setPincodeZipCode(zipCodeStr)
@@ -718,7 +743,7 @@ export default function LeadsPage() {
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="md:col-span-2">
                             <PincodeAutocomplete
-                              value={pincodeZipCode || watch('pincodeId') || ''}
+                              value={pincodeZipCode || ''}
                               onPincodeChange={(pincodeId, pincode, area) => {
                                 setSelectedPincodeId(pincodeId)
                                 setPincodeZipCode(pincode)
@@ -893,16 +918,31 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
   const [selectedPincodeId, setSelectedPincodeId] = useState('')
   const [selectedCityId, setSelectedCityId] = useState('')
   const [addressData, setAddressData] = useState<{ area: string; city: string; state: string } | null>(null)
+  const [leadData, setLeadData] = useState<any>(null)
+  const [pincodeZipCode, setPincodeZipCode] = useState('')
 
   const queryClient = useQueryClient()
 
+  // Fetch full lead details when dialog opens
+  const { data: fullLeadData, isLoading: isLoadingLead } = useQuery({
+    queryKey: ['lead', lead?.id],
+    queryFn: async () => {
+      if (!lead?.id) return null
+      const res = await fetch(`/api/leads/${lead.id}`)
+      if (!res.ok) throw new Error('Failed to fetch lead')
+      return res.json()
+    },
+    enabled: !!lead?.id && open,
+  })
+
   const createOrderMutation = useMutation({
     mutationFn: async () => {
+      if (!leadData) throw new Error('Lead data not loaded')
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          leadId: lead.id,
+          leadId: leadData.id,
           receivedAmount: parseFloat(formData.receivedAmount),
           paymentStatus: formData.paymentStatus,
           paymentMethod: formData.paymentMethod,
@@ -915,10 +955,10 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
           addressLine4: formData.addressLine4,
           addressLine5: formData.addressLine5,
           addressLine6: formData.addressLine6,
-          pincodeId: selectedPincodeId ? String(selectedPincodeId) : undefined,
-          cityId: selectedCityId ? String(selectedCityId) : undefined,
-          state: addressData?.state || formData.state,
-          country: formData.country,
+          pincodeId: selectedPincodeId ? String(selectedPincodeId) : (leadData?.pincodeId ? String(leadData.pincodeId) : undefined),
+          cityId: selectedCityId ? String(selectedCityId) : (leadData?.cityId ? String(leadData.cityId) : undefined),
+          state: addressData?.state || formData.state || leadData?.state || '',
+          country: formData.country || leadData?.country || 'India',
           station: formData.station,
           notes: formData.notes,
         }),
@@ -934,32 +974,107 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
     },
   })
 
-  React.useEffect(() => {
-    if (lead && open) {
+  // Initialize form when lead data is loaded
+  useEffect(() => {
+    const initializeForm = async () => {
+      if (fullLeadData && open) {
+      setLeadData(fullLeadData)
+      const currentLead = fullLeadData
+      const pincodeIdStr = currentLead.pincodeId ? String(currentLead.pincodeId) : ''
+      const cityIdStr = currentLead.cityId ? String(currentLead.cityId) : ''
+      
       setFormData({
         receivedAmount: '',
         paymentStatus: 'PARTIAL',
         paymentMethod: 'MONEY_ORDER',
         moneyOrderNumber: '',
-        totalAmount: lead.vppAmount ? lead.vppAmount.toString() : '',
-        vppAmount: lead.vppAmount ? lead.vppAmount.toString() : '',
-        addressLine1: lead.addressLine1 || '',
-        addressLine2: lead.addressLine2 || '',
-        addressLine3: lead.addressLine3 || '',
-        addressLine4: lead.addressLine4 || '',
-        addressLine5: lead.addressLine5 || '',
-        addressLine6: lead.addressLine6 || '',
-        pincodeId: lead.pincodeId ? String(lead.pincodeId) : '',
-        cityId: lead.cityId ? String(lead.cityId) : '',
-        state: lead.state || '',
-        country: lead.country || 'India',
+        totalAmount: currentLead.vppAmount ? currentLead.vppAmount.toString() : '',
+        vppAmount: currentLead.vppAmount ? currentLead.vppAmount.toString() : '',
+        addressLine1: currentLead.addressLine1 || '',
+        addressLine2: currentLead.addressLine2 || '',
+        addressLine3: currentLead.addressLine3 || '',
+        addressLine4: currentLead.addressLine4 || '',
+        addressLine5: currentLead.addressLine5 || '',
+        addressLine6: currentLead.addressLine6 || '',
+        pincodeId: pincodeIdStr,
+        cityId: cityIdStr,
+        state: currentLead.state || '',
+        country: currentLead.country || 'India',
         station: '',
         notes: '',
       })
-      setSelectedPincodeId(lead.pincodeId ? String(lead.pincodeId) : '')
-      setSelectedCityId(lead.cityId ? String(lead.cityId) : '')
+      
+      setSelectedPincodeId(pincodeIdStr)
+      setSelectedCityId(cityIdStr)
+      
+      // Fetch zipcode for display
+      let zipCodeStr = ''
+      if (currentLead.pincode?.area && pincodeIdStr) {
+        try {
+          const res = await fetch(`/api/pincodes?q=${encodeURIComponent(currentLead.pincode.area)}`)
+          if (res.ok) {
+            const pincodes = await res.json()
+            const matchingPincode = pincodes.find((p: any) => String(p.id) === pincodeIdStr)
+            if (matchingPincode && matchingPincode.zipCode) {
+              zipCodeStr = String(matchingPincode.zipCode)
+            } else {
+              zipCodeStr = currentLead.pincode.area
+            }
+          } else {
+            zipCodeStr = currentLead.pincode.area
+          }
+        } catch (error) {
+          zipCodeStr = currentLead.pincode.area
+        }
+      }
+      setPincodeZipCode(zipCodeStr)
+      
+      // Set address data from pincode and city
+      if (currentLead.pincode || currentLead.city) {
+        setAddressData({
+          area: currentLead.pincode?.area || '',
+          city: currentLead.city?.city || '',
+          state: currentLead.city?.state || currentLead.state || '',
+        })
+      } else {
+        setAddressData(null)
+      }
     }
-  }, [lead, open])
+    }
+    
+    initializeForm()
+  }, [fullLeadData, open])
+
+  // Reset when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setLeadData(null)
+      setFormData({
+        receivedAmount: '',
+        paymentStatus: 'PARTIAL',
+        paymentMethod: 'MONEY_ORDER',
+        moneyOrderNumber: '',
+        totalAmount: '',
+        vppAmount: '',
+        addressLine1: '',
+        addressLine2: '',
+        addressLine3: '',
+        addressLine4: '',
+        addressLine5: '',
+        addressLine6: '',
+        pincodeId: '',
+        cityId: '',
+        state: '',
+        country: 'India',
+        station: '',
+        notes: '',
+      })
+      setSelectedPincodeId('')
+      setSelectedCityId('')
+      setAddressData(null)
+      setPincodeZipCode('')
+    }
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -967,7 +1082,10 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
         <DialogHeader>
           <DialogTitle>Convert Lead to Order</DialogTitle>
         </DialogHeader>
-        <div className="space-y-6">
+        {isLoadingLead ? (
+          <div className="text-center py-8">Loading lead details...</div>
+        ) : (
+          <div className="space-y-6">
           <div>
             <h3 className="text-lg font-semibold mb-4">Payment Information</h3>
             <div className="grid gap-4 md:grid-cols-2">
@@ -1094,9 +1212,10 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
               </div>
               <div className="space-y-2 md:col-span-2">
                 <PincodeAutocomplete
-                  value=""
-                  onPincodeChange={(pincodeId) => {
+                  value={pincodeZipCode || ''}
+                  onPincodeChange={(pincodeId, pincode, area) => {
                     setSelectedPincodeId(pincodeId)
+                    setPincodeZipCode(pincode)
                     setFormData({ ...formData, pincodeId })
                   }}
                   onCityChange={(cityId, city, state, country) => {
@@ -1157,12 +1276,13 @@ function ConvertToOrderDialog({ open, lead, onClose }: { open: boolean; lead: an
             </Button>
             <Button
               onClick={() => createOrderMutation.mutate()}
-              disabled={createOrderMutation.isPending || !formData.receivedAmount || !formData.totalAmount}
+              disabled={createOrderMutation.isPending || !formData.receivedAmount || !formData.totalAmount || isLoadingLead}
             >
               {createOrderMutation.isPending ? 'Creating...' : 'Create Order'}
             </Button>
           </DialogFooter>
-        </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

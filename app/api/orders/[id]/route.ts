@@ -63,9 +63,9 @@ export async function GET(
         pincode: {
           select: {
             id: true,
-            zipCode: true,
             area: true,
-          } as any,
+            zipCode: true,
+          },
         },
         payments: {
           orderBy: { receivedAt: 'desc' },

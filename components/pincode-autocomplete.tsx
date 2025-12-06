@@ -51,10 +51,12 @@ export function PincodeAutocomplete({
   const [selectedPincode, setSelectedPincode] = useState<PincodeOption | null>(null)
   const [localSelectedCityId, setLocalSelectedCityId] = useState<string>(selectedCityId || '')
   const timeoutRef = useRef<NodeJS.Timeout>()
+  const valueFromPropsRef = useRef(false)
 
   // Sync pincode input when value prop changes
   useEffect(() => {
     if (value !== pincode) {
+      valueFromPropsRef.current = true
       setPincode(value || '')
     }
   }, [value])
@@ -66,14 +68,33 @@ export function PincodeAutocomplete({
     }
   }, [selectedCityId])
 
-  // Load cities when component mounts with existing pincodeId (for editing)
+  // Load pincode details and cities when component mounts with existing pincodeId (for editing)
   useEffect(() => {
-    const loadCitiesForPincode = async () => {
-      if (selectedPincodeId && cities.length === 0) {
+    const loadPincodeDetails = async () => {
+      if (selectedPincodeId && !selectedPincode) {
         try {
-          const res = await fetch(`/api/cities?pincodeId=${selectedPincodeId}`)
-          if (res.ok) {
-            const cityData = await res.json()
+          // First try to load pincode details by searching - we need area name to search
+          // Since we might have the value (zipcode or area), use that to find the pincode
+          if (value && value.length >= 3) {
+            const res = await fetch(`/api/pincodes?pincode=${encodeURIComponent(value)}`)
+            if (res.ok) {
+              const pincodes = await res.json()
+              const matchingPincode = pincodes.find((p: any) => String(p.id) === selectedPincodeId)
+              if (matchingPincode) {
+                setSelectedPincode({
+                  id: String(matchingPincode.id),
+                  zipCode: String(matchingPincode.zipCode),
+                  area: matchingPincode.area,
+                  city: matchingPincode.city,
+                })
+              }
+            }
+          }
+          
+          // Load cities for this pincode
+          const cityRes = await fetch(`/api/cities?pincodeId=${selectedPincodeId}`)
+          if (cityRes.ok) {
+            const cityData = await cityRes.json()
             setCities(cityData)
             
             // If only one city, auto-select it
@@ -91,16 +112,35 @@ export function PincodeAutocomplete({
             }
           }
         } catch (error) {
-          console.error('Error loading cities for pincode:', error)
+          console.error('Error loading pincode details:', error)
         }
       }
     }
     
-    loadCitiesForPincode()
+    loadPincodeDetails()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPincodeId]) // Only run when selectedPincodeId changes
+  }, [selectedPincodeId, value]) // Run when selectedPincodeId or value changes
 
   useEffect(() => {
+    // Don't auto-search if value was just set from props (editing mode)
+    if (valueFromPropsRef.current && pincode === value) {
+      valueFromPropsRef.current = false
+      setPincodeOptions([])
+      setShowSuggestions(false)
+      return
+    }
+    
+    // Don't auto-search if we have a selectedPincodeId and the value matches (user is not typing)
+    // This prevents dropdown from opening when editing with existing pincode
+    if (selectedPincodeId && pincode && selectedPincode) {
+      // If we have a selection and value matches, don't auto-search
+      if (pincode === selectedPincode.zipCode || pincode === selectedPincode.area) {
+        setPincodeOptions([])
+        setShowSuggestions(false)
+        return
+      }
+    }
+    
     if (pincode.length >= 3) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
@@ -112,9 +152,11 @@ export function PincodeAutocomplete({
       setPincodeOptions([])
       setShowSuggestions(false)
       // Clear cities and selection when pincode is cleared
-      setCities([])
-      setLocalSelectedCityId('')
-      setSelectedPincode(null)
+      if (!selectedPincodeId) {
+        setCities([])
+        setLocalSelectedCityId('')
+        setSelectedPincode(null)
+      }
     }
 
     return () => {
@@ -122,7 +164,7 @@ export function PincodeAutocomplete({
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [pincode])
+  }, [pincode, selectedPincodeId, selectedPincode, value])
 
   const searchPincodes = async (query: string) => {
     setLoading(true)
@@ -141,6 +183,7 @@ export function PincodeAutocomplete({
   }
 
   const handlePincodeSelect = async (option: PincodeOption) => {
+    valueFromPropsRef.current = false
     setPincode(option.zipCode)
     setSelectedPincode(option)
     setShowSuggestions(false)

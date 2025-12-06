@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Search, Package, Truck, Edit } from 'lucide-react'
+import { Search, Package, Truck, Edit, Eye } from 'lucide-react'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import { Pagination } from '@/components/ui/pagination'
 
@@ -208,7 +208,10 @@ export default function AdminOrdersPage() {
                   </TableRow>
                 ) : (
                   orders.map((order: any) => (
-                    <TableRow key={order.id}>
+                    <TableRow 
+                      key={order.id}
+                      className={order.status === 'DELIVERED' ? 'bg-green-50 hover:bg-green-100' : ''}
+                    >
                       <TableCell className="font-medium font-mono text-sm">
                         {order.orderNumber}
                       </TableCell>
@@ -248,16 +251,30 @@ export default function AdminOrdersPage() {
                         {order.dispatchDate ? formatDateTime(order.dispatchDate) : '-'}
                       </TableCell>
                       <TableCell>
-                        {order.status !== 'DISPATCHED' && order.status !== 'CANCELLED' && (
+                        <div className="flex items-center gap-2">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDispatch(order)}
+                            onClick={() => window.location.href = `/admin/orders/${order.id}`}
                           >
-                            <Truck className="h-4 w-4 mr-1" />
-                            Dispatch
+                            <Eye className="h-4 w-4 mr-1" />
+                            View
                           </Button>
-                        )}
+                          {order.status !== 'DISPATCHED' && 
+                           order.status !== 'CANCELLED' && 
+                           order.status !== 'DELIVERED' && 
+                           order.status !== 'RETURNED' && 
+                           order.status !== 'IN_TRANSIT' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDispatch(order)}
+                            >
+                              <Truck className="h-4 w-4 mr-1" />
+                              Dispatch
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))

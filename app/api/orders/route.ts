@@ -115,9 +115,8 @@ export async function GET(req: NextRequest) {
           pincode: {
             select: {
               id: true,
-              zipCode: true,
               area: true,
-            } as any,
+            },
           },
           payments: {
             orderBy: { receivedAt: 'desc' },
@@ -193,9 +192,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Convert pincodeId and cityId to integers or null
+    // First try from request data, then fallback to lead data
     if (data.pincodeId && data.pincodeId !== '' && data.pincodeId !== 'null') {
       const parsed = parseInt(String(data.pincodeId), 10)
       orderData.pincodeId = isNaN(parsed) ? null : parsed
+    } else if (lead.pincodeId) {
+      // Fallback to lead's pincodeId if not provided in request
+      orderData.pincodeId = lead.pincodeId
     } else {
       orderData.pincodeId = null
     }
@@ -203,6 +206,9 @@ export async function POST(req: NextRequest) {
     if (data.cityId && data.cityId !== '' && data.cityId !== 'null') {
       const parsed = parseInt(String(data.cityId), 10)
       orderData.cityId = isNaN(parsed) ? null : parsed
+    } else if (lead.cityId) {
+      // Fallback to lead's cityId if not provided in request
+      orderData.cityId = lead.cityId
     } else {
       orderData.cityId = null
     }

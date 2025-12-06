@@ -31,6 +31,7 @@ export default async function AnalyticsPage() {
         select: {
           status: true,
           receivedAmount: true,
+          vppAmount: true,
         },
       },
     },
@@ -40,7 +41,10 @@ export default async function AnalyticsPage() {
   const employeeStats = employees.map((emp) => {
     const convertedLeads = emp.assignedLeads.filter((l) => l.status === 'CONVERTED').length
     const paidOrders = emp.assignedOrders.filter((o) => o.status === 'PAID')
+    const nonReturnedOrders = emp.assignedOrders.filter((o) => o.status !== 'RETURNED')
     const revenue = paidOrders.reduce((sum, o) => sum + Number(o.receivedAmount), 0)
+    // Calculate VPP amount excluding returned orders
+    const vppAmount = nonReturnedOrders.reduce((sum, o) => sum + Number(o.vppAmount || 0), 0)
     const conversionRate = emp._count.assignedLeads > 0
       ? ((emp._count.assignedOrders / emp._count.assignedLeads) * 100).toFixed(1)
       : '0.0'
@@ -54,6 +58,7 @@ export default async function AnalyticsPage() {
       totalOrders: emp._count.assignedOrders,
       paidOrders: paidOrders.length,
       revenue,
+      vppAmount,
       conversionRate,
     }
   })
@@ -77,6 +82,17 @@ export default async function AnalyticsPage() {
     },
   })
 
+  // Get total VPP amounts (excluding returned orders)
+  const totalVppAggregate = await prisma.order.aggregate({
+    where: {
+      status: { not: 'RETURNED' },
+    },
+    _sum: {
+      vppAmount: true,
+    },
+  })
+  const totalVppAmount = Number(totalVppAggregate._sum.vppAmount || 0)
+
   return (
     <div className="space-y-6">
       <div>
@@ -99,13 +115,14 @@ export default async function AnalyticsPage() {
                 <TableHead>Total Orders</TableHead>
                 <TableHead>Paid</TableHead>
                 <TableHead>Revenue</TableHead>
+                <TableHead>VPP Amount</TableHead>
                 <TableHead>Conversion Rate</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {employeeStats.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     No employee data available
                   </TableCell>
                 </TableRow>
@@ -123,6 +140,7 @@ export default async function AnalyticsPage() {
                     <TableCell>{stat.totalOrders}</TableCell>
                     <TableCell>{stat.paidOrders}</TableCell>
                     <TableCell>{formatCurrency(stat.revenue)}</TableCell>
+                    <TableCell>{formatCurrency(stat.vppAmount)}</TableCell>
                     <TableCell>{stat.conversionRate}%</TableCell>
                   </TableRow>
                 ))
@@ -170,6 +188,24 @@ export default async function AnalyticsPage() {
                 </div>
               ))
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* VPP Amount Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle>VPP Amount Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Total VPP Amount (Excluding Returned Orders)</span>
+              <span className="text-lg font-bold">{formatCurrency(totalVppAmount)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              This total excludes orders with RETURNED status from VPP calculations.
+            </p>
           </div>
         </CardContent>
       </Card>
