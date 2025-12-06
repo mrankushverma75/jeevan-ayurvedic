@@ -268,7 +268,7 @@ export default function OrderDetailsPage() {
                 {order.pincode?.area && `${order.pincode.area}, `}
                 {order.city?.city && `${order.city.city}, `}
                 {order.state && `${order.state}, `}
-                {order.pincode.zipCode + ','}
+                {order.pincode?.zipCode && `${order.pincode.zipCode}, `}
                 {order.country || 'India'}
               </p>
               {order.station && (
